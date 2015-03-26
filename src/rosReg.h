@@ -35,12 +35,16 @@ class rosReg{
     {
       nh_ = nh;
      
-      sub_force = nh_.subscribe<cisst_msgs::vctDoubleVec>("/logger/MsrFT", 10, &rosReg::cb_force,this);
-       sub_pose = nh_.subscribe<geometry_msgs::Pose>("/logger/MsrSE3", 10, &rosReg::cb_pose,this);
+      sub_force = nh_.subscribe<cisst_msgs::vctDoubleVec>("/logger/MsrFT", 1000, &rosReg::cb_force,this);
+       sub_pose = nh_.subscribe<geometry_msgs::Pose>("/logger/MsrSE3", 1000, &rosReg::cb_pose,this);
 
        force_reading.assign(3,0);
        ee_pos.assign(3,0);
        ee_qua.assign(4,0);
+       ee_ori.push_back(ee_pos);
+       ee_ori.push_back(ee_pos);
+       ee_ori.push_back(ee_pos);
+       
        quaternion2rotation(ee_qua, ee_ori);
        plreg = new PlaneRegistration(force_reading, ee_pos, ee_ori);
           
@@ -48,20 +52,20 @@ class rosReg{
 
 
   void cb_force(const cisst_msgs::vctDoubleVec::ConstPtr& msg){
-    for (int i = 0; i < 6; i++)
-      force_reading.push_back(msg->data[i]);
+    for (int i = 0; i < 3; i++)
+      force_reading[i] = msg->data[i];
   }
 
   void cb_pose(const geometry_msgs::Pose::ConstPtr& msg){
 
-    ee_pos.push_back(msg->position.x);
-    ee_pos.push_back(msg->position.y);
-    ee_pos.push_back(msg->position.z);
+    ee_pos[0] = msg->position.x;
+    ee_pos[1] = msg->position.y;
+    ee_pos[2] = msg->position.z;
 
-    ee_qua.push_back(msg->orientation.w);
-    ee_qua.push_back(msg->orientation.x);
-    ee_qua.push_back(msg->orientation.y);
-    ee_qua.push_back(msg->orientation.z);
+    ee_qua[0] = msg->orientation.w;
+    ee_qua[1] = msg->orientation.x;
+    ee_qua[2] = msg->orientation.y;
+    ee_qua[3] = msg->orientation.z;
     
   }
 
@@ -85,14 +89,15 @@ class rosReg{
     z[1] = 2*qy*qz - 2*qx*qw;
     z[2] = 1 - 2*pow(qx,2) - 2*pow(qy,2);
 
-    rotation.push_back(x);
-    rotation.push_back(y);
-    rotation.push_back(z);
+    rotation[0] = x;
+    rotation[1] = y;
+    rotation[2] = z;
     
   }
 
   void run(){
-
+    // std::cout<<force_reading[0]<<" "<<force_reading[1]<<" "<<force_reading[2]<<std::endl;
+     quaternion2rotation(ee_qua, ee_ori);
     if (plreg->append_buffer(force_reading, ee_pos, ee_ori))
       std::vector<double> error = plreg->register_plane();
     //std::cout<<error[0]<<","<<error[1]<<","<<error[2]<<std::endl;
