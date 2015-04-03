@@ -1,6 +1,7 @@
 #include <iostream>
 #include <math.h>
 #include <vector>
+#include <Dense>
 
 #define PI 3.1415926
 
@@ -10,18 +11,12 @@
 class PlaneRegistration{
 
  public:
-  
-  /* PlaneRegistration( const vct3& force_reading, */
-  /* 		     const vctFrm4x4& cutter_pose ); */
 
   PlaneRegistration( const std::vector<double>& force_reading,
 		     const std::vector<double>& ee_pos,
 		     const std::vector<std::vector<double> >& ee_ori );
   
   ~PlaneRegistration(){}
-
-  /* bool append_buffer(const vct3& force_reading, */
-  /* 		     const vctFrm4x4& cutter_pose); */
 
   bool append_buffer( const std::vector<double>& force_reading,
 		      const std::vector<double>& ee_pos,

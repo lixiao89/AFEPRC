@@ -1,0 +1,91 @@
+#include <iostream>
+#include <cmath>
+#include <vector>
+#include <eigen3/Eigen/Dense>
+
+#define PI 3.1415926
+
+#ifndef ADAPTIVE_ESTIMATION_
+#define ADAPTIVE_ESTIMATION_
+
+class AdaptiveEstimation{
+
+ public:
+
+  AdaptiveEstimation(const double& current_time,
+		     const double& current_Ft,
+		     const double& current_Fn,
+		     const std::vector<double>& current_joint_states);
+
+  ~AdaptiveEstimation(){}
+
+  enum TaskState {NORMAL, SLIDING, TEARING, BUNCHING};
+
+  
+  void append_buff(const double& current_time,
+		   const double& current_Fn,
+		   const double& current_Ft,
+		   const std::vector<double>& current_joint_states);
+
+
+  // MAIN ESTIMATOR LOGIC
+  AdaptiveEstimation::TaskState run_task_monitor();
+
+  // get member variables
+  void get_member_var(Eigen::Vector2d& x, double& Fest);
+
+  
+  
+ private:
+
+  // returns true if robot is moving
+  bool is_moving();
+  
+  // returns true if time series of normal force (Fn) in the current window is observable 
+  bool is_observable();
+
+  // evaluates adaptive estimation using recursive least square. x = [mu, Fc]
+  void evaluate_adaptive_estimator(Eigen::Vector2d& x, Eigen::Matrix2d& Cov);
+
+  // using the estimated parameters, perform anomaly detection
+  TaskState detect_anomaly();
+
+  //*************** Memeber Variables *****************************
+
+  // ## Parameters to tune ##
+  Eigen::Vector2d param; // param = [mu, Fc], initial value can change
+  Eigen::Matrix2d P; // covariance of param
+  double obs_upper_bound;
+  double obs_lower_bound;
+  double obs_th; // observability threshold
+  double obs_ws; // window size
+  double obs_increment_shrink;
+  double obs_increment_extend;
+  double tear_th;
+  double bunch_th;
+  double slide_th;
+  double lambda_mu;
+  double lambda_Fc;
+  double motion_th;
+  // #######################
+
+  std::vector<double> Fn_buff;
+  std::vector<double> t1_buff;
+
+  std::vector< std::vector<double> > joint_states_buff;
+  std::vector<double> t2_buff;
+  
+  double Fn_now;
+  double Ft_now;
+  double Fest_now;
+  double t_now;
+  
+  Eigen::Vector2d param_success;
+  Eigen::Matrix2d P_success;
+
+  AdaptiveEstimation::TaskState current_task_state;
+
+  bool is_moving_now;
+};
+
+#endif

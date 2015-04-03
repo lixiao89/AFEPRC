@@ -53,7 +53,8 @@ include_directories(
 ## Declare a cpp executable
  add_executable(plreg 
                src/main.cpp
-               src/plane_registration.cpp)
+               src/plane_registration.cpp
+               src/adaptive_estimation.cpp)
 
 ## Add cmake target dependencies of the executable/library
 ## as an example, message headers may need to be generated before nodes

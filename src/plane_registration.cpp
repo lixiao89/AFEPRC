@@ -5,7 +5,7 @@ PlaneRegistration::PlaneRegistration( const std::vector<double>& force_reading,
 					const std::vector< std::vector<double> >& ee_ori ){
 
   append_buffer( force_reading, ee_pos, ee_ori);
-  window_size = 100;
+  window_size = 150;
   v_max = 0.003/100;
   hfp = -3;
   
@@ -38,6 +38,7 @@ bool PlaneRegistration::append_buffer(const std::vector<double>& force_reading,
     cutter_ydir_buff.push_back(ydir_now);
     cutter_zdir_buff.push_back(zdir_now);
   }
+
   
   
   std::vector<double> last_pos_in_buffer = cutter_xyz_buff[cutter_xyz_buff.size()-1];
@@ -71,36 +72,43 @@ bool PlaneRegistration::append_buffer(const std::vector<double>& force_reading,
 
 std::vector<double> PlaneRegistration::calculate_avg_dir(const std::vector<std::vector<double> >& data_points){
 
- std::vector<double> avg_dir(data_points[0].size(), 0);
+  Eigen::MatrixXd X( data_points.size(), data_points[0].size() );
 
+  for(int i = 0; i < data_points.size(); i++)
+    for(int j = 0; j < data_points[0].size(); j++)
+      X(i,j) = data_points[i][j];
+
+  Eigen::MatrixXd centered = X.rowwise() - X.colwise().mean();
+  //Eigen::MatrixXd cov = centered.adjoint()*centered;
+
+  //Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eig(cov);
+
+  Eigen::JacobiSVD<Eigen::MatrixXd> svd(centered, Eigen::ComputeThinV);
+  
+  Eigen::VectorXd avg_dir(data_points[0].size());
+  Eigen::VectorXd singular_values(data_points[0].size());
+
+  singular_values = svd.singularValues();
  
- for (int j = 50; j < data_points.size(); j++){
-   double norm = 0;
-   std::vector<double> diff(data_points[0].size(), 0);
-   for (int i = 0; i < data_points[0].size(); i++){
-     diff[i] = (data_points[j][i] - data_points[j-49][i]);
-     norm += pow(data_points[j][i] - data_points[j-49][i], 2);
-   }
-   norm = sqrt(norm);
-
-   for (int i = 0; i < data_points[0].size(); i++){
-     // become unit vector and store
-     avg_dir[i] += diff[i] / norm;
-   }
- }
-
- double norm = 0;
- for (int i = 0; i < data_points[0].size(); i++){
-   avg_dir[i] = avg_dir[i] / data_points.size();
-   norm += pow(avg_dir[i],2);
- } 
-
- norm = sqrt(norm);
-for (int i = 0; i < data_points[0].size(); i++){
-   avg_dir[i] = avg_dir[i] / norm;
- } 
+  int max_index = 0;
+  double max_value = 0;
+  for (int i = 0; i < data_points[0].size(); i++ ){
+    if (singular_values(i) > max_value){
+      max_value = singular_values(i);
+      max_index = i;
+    }
+  }
+  
+  //avg_dir = eig.eigenvectors().rightCols(1);
+  avg_dir = svd.matrixV().col(max_index);
+  avg_dir.normalize();
+  
+  std::vector<double> result(data_points[0].size(), 0);
+  for (int i = 0; i < data_points[0].size(); i++){
+    result[i] = avg_dir(i);
+  }
  
- return avg_dir;
+  return result;
 }
 
 
@@ -112,8 +120,9 @@ std::vector<double> PlaneRegistration::register_plane(){
   stiffness_compensation(points_after_comp, stiffness_est);
 
   std::vector<double> motion_dir = calculate_avg_dir(points_after_comp);
-  
+  //std::vector<double> motion_dir = calculate_avg_dir(cutter_xyz_buff);
   calculate_misalignment(motion_dir);
+ 
   return error;
 }
 
@@ -153,20 +162,29 @@ void PlaneRegistration::stiffness_compensation( std::vector<std::vector<double> 
   
   for (int i = 0; i < cutter_xyz_buff.size(); i++){
     std::vector<double> point_after_comp(3,0);
-    point_after_comp[0] = cutter_xyz_buff[i][0] + (hfp - jr3_buff[i][2])*local_z[0];
-    point_after_comp[1] = cutter_xyz_buff[i][1] + (hfp - jr3_buff[i][2])*local_z[1];
-    point_after_comp[2] = cutter_xyz_buff[i][2] + (hfp - jr3_buff[i][2])*local_z[2];
+    point_after_comp[0] = cutter_xyz_buff[i][0] + (hfp - jr3_buff[i][2])*local_z[0]/estimated_stiffness;
+    point_after_comp[1] = cutter_xyz_buff[i][1] + (hfp - jr3_buff[i][2])*local_z[1]/estimated_stiffness;
+    point_after_comp[2] = cutter_xyz_buff[i][2] + (hfp - jr3_buff[i][2])*local_z[2]/estimated_stiffness;
     points_after_comp.push_back(point_after_comp);
   }
 }
 
   // currently only implemented to calculate angle between motion_dir and cutter_xdir (rotation around y axis)
 void PlaneRegistration::calculate_misalignment(const std::vector<double>& motion_dir){
-  
-  double angle_error = acos(motion_dir[0]*-(current_xdir[0]) + motion_dir[1]*(-current_xdir[1]) + motion_dir[2]*(-current_xdir[2]));
 
-  std::cout<<motion_dir[0]<<" "<<motion_dir[1]<<" "<<motion_dir[2]<<std::endl;
-  //std::cout<<current_xdir[0]<<" "<<current_xdir[1]<<" "<<current_xdir[2]<<std::endl;
+  Eigen::Vector3d motiondir(motion_dir[0], motion_dir[1], motion_dir[2]);
+  Eigen::Vector3d currentxdir(-current_xdir[0], -current_xdir[1], -current_xdir[2]);
+  Eigen::Vector3d currentydir(current_ydir[0], current_ydir[1], current_ydir[2]);
+
+  motiondir.normalize();
+  currentxdir.normalize();
+  currentydir.normalize();
+  
+  double angle_error = acos(motiondir.dot(currentxdir));
+
+  double y_axis_error = acos( (currentxdir.cross(motiondir)).dot(currentydir) );
+
+  if(y_axis_error > PI/2) { angle_error = -angle_error; }
   
   error[0] = angle_error*180/PI;
 }
