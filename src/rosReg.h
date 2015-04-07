@@ -126,7 +126,7 @@ class rosReg{
      if (plreg->append_buffer(force_reading, ee_pos, ee_ori)){
        std::vector<double> error1(3,0);
        error1 = plreg->register_plane();
-       std::cout<<error1[0]<<","<<error1[1]<<","<<error1[2]<<std::endl;
+       //  std::cout<<error1[0]<<","<<error1[1]<<","<<error1[2]<<std::endl;
      }
 
      // --------- Adaptive Estimation --------------------------
@@ -139,7 +139,7 @@ class rosReg{
      bool is_moving_now;
      adest->get_member_var(param, Fest, is_moving_now);
 
-     // std::cout<<param<<std::endl;
+     //std::cout<<param<<std::endl;
      //std::cout<<"---"<<std::endl;
   }
        
