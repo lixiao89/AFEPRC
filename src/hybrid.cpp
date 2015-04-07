@@ -100,21 +100,6 @@ public:
     // MODE
     if (ctrl_type_ == CTRL_HYBRID)
     {
-#if 0
-      double vel_gain = 0.1;
-      double rot_gain = 0.4;
-      Twist cmd_twist = twist_;
-      cmd_twist.vel = vel_gain * cmd_twist.vel;
-      cmd_twist.rot = rot_gain * cmd_twist.rot;
-
-      // ignore some axes
-      cmd_twist.vel(0) = 0.0;  // ignore x
-      cmd_twist.rot(1) = 0.0;  // ignore y
-      cmd_twist.rot(2) = 0.0;  // ignore z
-
-      cmd_twist = cmd_frame_.M.Inverse(cmd_twist);
-      cmd_frame_.Integrate(cmd_twist, 50);
-#endif
 
 #if 1
       // force control
@@ -128,10 +113,8 @@ public:
       if (fabs(cmd_v) < 0.00005) cmd_v = 0.0;
 
       Frame force_frame;
-      // force_frame.p(2) = cmd_v;
-      // cmd_frame_ = cmd_frame_ * force_frame;
-      force_frame.p(0) = -cmd_v;
-      cmd_frame_ = force_frame * cmd_frame_;
+      force_frame.p(2) = cmd_v;
+      cmd_frame_ = cmd_frame_ * force_frame;
 
 #endif
 
@@ -145,20 +128,9 @@ public:
       }
       else
       {
-        // do fk
-        // fk_solver_->JntToCart(jnt_pos_, tip_frame_);
-        // KDL::Vector pos_diff = cmd_frame_.p - tip_frame_.p;
-        // KDL::Vector rot_diff = (cmd_frame_.M.Inverse() * tip_frame_.M).GetRot();
-        // if (pos_diff.Norm() > 0.01 || rot_diff.Norm() > 0.10) {
-        //   ROS_ERROR_STREAM("pos err = " << pos_diff.Norm() << " rot err = " << rot_diff.Norm());
-        //   violation = true;
-        // }
-        
-
           
         // do ik
         ik_solver_->CartToJnt(jnt_pos_, cmd_frame_, jnt_cmd_);
-        // std::cout << "cmd: " << jnt_cmd_.data.transpose() << std::endl;
 
         // safety chec
         bool violation = false;
@@ -246,26 +218,14 @@ private:
     is_new_cmd_ = false;
     KDL::Frame cmd_frame_new;
     tf::poseMsgToKDL(msg, cmd_frame_new);
-
-    KDL::Vector pos_diff = cmd_frame_new.p - cmd_frame_.p;
-    KDL::Vector rot_diff = (cmd_frame_new.M.Inverse() * cmd_frame_.M).GetRot();
-
-    // KDL::Frame frm_diff = cmd_frame_.Inverse() * cmd_frame_new;
-    // frm_diff.p.z(0.0);
-
-    if (pos_diff.Norm() > 0.10 || rot_diff.Norm() > 0.10) {
+       
+    if (cmd_frame_new.p.Norm() > 0.10 || cmd_frame_new.M.Norm() > 0.10) {
       is_new_cmd_ = false;
     } else {
       is_new_cmd_ = true;
-      cmd_frame_.M = cmd_frame_new.M;
-      cmd_frame_.p = cmd_frame_.p + KDL::Vector(0, pos_diff.y(), pos_diff.z());
-      // cmd_frame_ = cmd_frame_new;
+      cmd_frame_ = cmd_frame_ * cmd_frame_new;
     }
 
-    if (counter_%20 == 0) {
-      // std::cout << cmd_frame_new << std::endl;
-      // std::cout << cmd_frame_ * frm_diff << std::endl << std::endl;
-    }
   }
 
   void init_kdl_robot()
