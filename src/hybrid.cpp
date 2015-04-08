@@ -21,7 +21,10 @@
 #include <boost/scoped_ptr.hpp>
 
 #include <math.h>   // PI
+#include <vector>
 
+#include "plane_registration.h"
+#include "adaptive_estimation.h"
 
 // TODO
 //  - add joint pos callback
@@ -45,7 +48,8 @@ public:
     CTRL_IDLE,
     CTRL_READY,
     CTRL_HYBRID,
-    CTRL_MANUAL
+    CTRL_MANUAL,
+    CTRL_CORRECT
   };
 
   Control(ros::NodeHandle* node, bool is_master, bool is_sim, std::string joy_name):
@@ -89,7 +93,28 @@ public:
 
     // class memeber
     init_kdl_robot();
+
+
+    // AFEPRC
+    force_reading.assign(3,0);
+    current_joint_states.assign(7,0);
+    ee_pos.assign(3,0);
+    ee_ori.push_back(ee_pos);
+    ee_ori.push_back(ee_pos);
+    ee_ori.push_back(ee_pos);
+
+    plreg = new PlaneRegistration(force_reading, ee_pos, ee_ori);
+    adest = new AdaptiveEstimation(0, 0, 0, current_joint_states);
+
+    start_time = ros::Time::now().toSec();
+
+    Vector forward(0.01,0,0);
+    Vector backward(-0.01,0,0);
+
+    kb_forward.p = forward;
+    kb_backward.p = backward;
   }
+
   virtual ~Control(){}
 
   void update()
@@ -98,9 +123,25 @@ public:
     counter_++;
       
     // MODE
-    if (ctrl_type_ == CTRL_HYBRID)
+    if (ctrl_type_ == CTRL_HYBRID || ctrl_type_ == CTRL_CORRECT)
     {
 
+#if 0
+      double vel_gain = 0.1;
+      double rot_gain = 0.4;
+      Twist cmd_twist = twist_;
+      cmd_twist.vel = vel_gain * cmd_twist.vel;
+      cmd_twist.rot = rot_gain * cmd_twist.rot;
+
+      // ignore some axes
+      cmd_twist.vel(0) = 0.0;  // ignore x
+      cmd_twist.rot(1) = 0.0;  // ignore y
+      cmd_twist.rot(2) = 0.0;  // ignore z
+
+      cmd_twist = cmd_frame_.M.Inverse(cmd_twist);
+      cmd_frame_.Integrate(cmd_twist, 50);
+#endif
+      
 #if 1
       // force control
       double cmd_force = -4.0;
@@ -118,6 +159,11 @@ public:
 
 #endif
 
+      // AFEPRC
+      if (ctrl_type_ == CTRL_CORRECT){
+	AFEPRC();
+      }
+      
       if(is_master_)
       {
         // publish tip command frame
@@ -154,10 +200,6 @@ public:
         }
       }
     }
-
-    if (ctrl_type_ == CTRL_MANUAL)
-    {
-    }
   }
 
 private:
@@ -180,6 +222,10 @@ private:
   void cb_jr3(const geometry_msgs::WrenchStamped &msg)
   {
     tf::wrenchMsgToKDL(msg.wrench, jr3_wrench_);
+
+    force_reading[0] = jr3_wrench_.force.x();
+    force_reading[1] = jr3_wrench_.force.y();
+    force_reading[2] = jr3_wrench_.force.z();
   }
 
   void cb_key(const std_msgs::String &msg)
@@ -189,8 +235,14 @@ private:
       ctrl_ready();
     else if (msg.data == "h")
       ctrl_hybrid();
+    else if (msg.data == 'c')
+      ctrl_correct();
     else if (msg.data == "m")
       ctrl_manual();
+    else if (msg.data == 'i') 
+      cmd_frame_ = cmd_frame_ * kb_forward;
+    else if (msg.data == 'k')
+      cmd_frame_ = cmd_frame_ * kb_backward;
     else
       ROS_ERROR("Unsupported Commands");
   }
@@ -203,6 +255,7 @@ private:
 
     for (size_t i = 0; i < num_jnts_; i++) {
       jnt_pos_(i) = msg.position.at(i);
+      current_joint_states[i] = msg.position.at(i);
       jnt_vel_(i) = msg.velocity.at(i);
     }
 
@@ -300,6 +353,7 @@ private:
     pub_jnt_cmd_.publish(msg_jnt_cmd);
   }
 
+
   void ctrl_hybrid()
   {
     // enter hybrid
@@ -327,6 +381,55 @@ private:
     }
   }
 
+ void ctrl_correct()
+  {
+    // enter correction mode
+    ctrl_type_ = CTRL_CORRECT;
+    fk_solver_->JntToCart(jnt_pos_, tip_frame_);
+    std::cout << "tip pose = \n" << tip_frame_ << std::endl;
+
+    // sync cmd frame
+    cmd_frame_ = tip_frame_;
+  }
+
+  void AFEPRC(){
+
+    // -------  Plane Registration and Correction ----------------
+
+    fk_solver_->JntToCart(jnt_pos_, tip_frame_);
+
+    for (int i = 0; i < 3; i ++){
+      for (int j = 0; j < 3; j++){
+	std::vector<double> temp(3, 0);
+	temp[j] = tip_frame_.M(j,i);
+      }
+      ee_ori[i] = temp;
+      ee_pos[i] = tip_frame_.p(i);
+    }
+    if (plreg->append_buffer(force_reading, ee_pos, ee_ori)){
+      std::vector<double> error1(3,0);
+      error1 = plreg->register_plane();
+      //  std::cout<<error1[0]<<","<<error1[1]<<","<<error1[2]<<std::endl;
+    }
+
+    // --------- Adaptive Estimation --------------------------
+    double current_time = ros::Time::now().toSec() - startTime;
+    double Fn_now = force_reading[2];
+    double Ft_now = force_reading[0];
+    adest->append_buff(current_time, Fn_now, Ft_now, current_joint_states);
+    AdaptiveEstimation::TaskState current_task_state = adest->run_task_monitor();
+
+    Eigen::Vector2d param;
+    double Fest;
+    bool is_moving_now;
+    adest->get_member_var(param, Fest, is_moving_now);
+
+    //std::cout<<param<<std::endl;
+    //std::cout<<"---"<<std::endl;
+  
+    
+  }
+ 
   void ctrl_manual()
   {
     // enter manual(gravity compensation mode)
@@ -400,6 +503,21 @@ private:
   // ctrl mode
   CONTROL_TYPE ctrl_type_;
 
+
+  // AFEPRC
+
+  std::vector<double> force_reading;
+  std::vector<double> current_joint_states;
+  std::vector<double> ee_pos;
+  std::vector< std::vector<double> > ee_ori;
+
+  PlaneRegistration* plreg;
+  AdaptiveEstimation* adest;
+
+  double start_time;
+  
+  Frame kb_forward;
+  Frame kb_backward;
 };
 
 

@@ -169,6 +169,29 @@ class HelloWorld(cmd.Cmd):
         print 'hybrid key is pressed'
         self.pub_hybrid_key.publish('h')
 
+    def do_c(self, line):
+        """
+        Put robot into hybrid Force/Postion mode
+        """
+        print 'correction key is pressed'
+        self.pub_hybrid_key.publish('c')
+
+        
+    def do_i(self, line):
+        """
+        Put robot into hybrid Force/Postion mode
+        """
+        print 'forward key is pressed'
+        self.pub_hybrid_key.publish('i')
+        
+    def do_k(self, line):
+        """
+        Put robot into hybrid Force/Postion mode
+        """
+        print 'backward key is pressed'
+        self.pub_hybrid_key.publish('k')
+
+        
     def do_greet(self, person):
         """
         greet [person]
